@@ -38,10 +38,11 @@
             <div class="panel-header">
                 <div class="panel-handle"></div>
                 <div class="flex items-center justify-between w-full gap-2">
-                    <div class="join flex-1 max-w-sm">
+                    <div class="join flex-1 max-w-md">
                         <button id="panel-tab-controls" class="join-item btn btn-primary btn-sm sm:btn-md flex-1">Controls</button>
                         <button id="panel-tab-settings" class="join-item btn btn-ghost btn-sm sm:btn-md flex-1">Settings</button>
                         <button id="panel-tab-files" class="join-item btn btn-ghost btn-sm sm:btn-md flex-1">Files</button>
+                        <button id="panel-tab-video" class="join-item btn btn-ghost btn-sm sm:btn-md flex-1">Video</button>
                     </div>
                     <button id="panel-close" class="btn btn-circle btn-ghost btn-sm sm:btn-md shrink-0" aria-label="Close panel">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -107,6 +108,7 @@
                         'Controls': '控制',
                         'Settings': '设置',
                         'Files': '文件',
+                        'Video': '视频',
                         'Close panel': '关闭面板',
                         'Connecting to device...': '正在连接设备...'
                     },
@@ -114,6 +116,7 @@
                         'Controls': '控制',
                         'Settings': '設置',
                         'Files': '檔案',
+                        'Video': '影片',
                         'Close panel': '關閉面板',
                         'Connecting to device...': '正在連接設備...'
                     }
@@ -124,6 +127,7 @@
                     document.querySelector('#panel-tab-controls').textContent = trans['Controls'];
                     document.querySelector('#panel-tab-settings').textContent = trans['Settings'];
                     document.querySelector('#panel-tab-files').textContent = trans['Files'];
+                    document.querySelector('#panel-tab-video').textContent = trans['Video'];
                     document.querySelector('#panel-close').setAttribute('aria-label', trans['Close panel']);
                     document.querySelector('#loading-status').textContent = trans['Connecting to device...'];
                     document.documentElement.lang = lang;
@@ -131,6 +135,178 @@
             } catch(e) {
                 console.log('Language init failed, using default');
             }
+        })();
+    </script>
+    <script>
+        // Video tab override: recursively load videos from all directories.
+        (function() {
+            const VIDEO_EXTENSIONS = ['.ts', '.mp4', '.mkv', '.mov', '.avi', '.webm', '.m3u8'];
+
+            function isVideoFile(name) {
+                const lower = (name || '').toLowerCase();
+                return VIDEO_EXTENSIONS.some(ext => lower.endsWith(ext));
+            }
+
+            function normalizePath(path) {
+                if (!path || path === '/') return '/';
+                let out = path.startsWith('/') ? path : `/${path}`;
+                out = out.replace(/\/+/g, '/');
+                return out;
+            }
+
+            function joinPath(basePath, name) {
+                const base = normalizePath(basePath);
+                if (base === '/') return normalizePath(`/${name}`);
+                return normalizePath(`${base}/${name}`);
+            }
+
+            async function patchVideoTab() {
+                if (!window.PanelOverlay || !window.Api || window.PanelOverlay.__videoPatched) return;
+
+                window.PanelOverlay.__videoPatched = true;
+                window.PanelOverlay._loadVideoTab = async function() {
+                    if (!this._contentContainer) return;
+
+                    this._contentContainer.className = 'w-full';
+                    this._contentContainer.innerHTML = '';
+
+                    const title = document.createElement('div');
+                    title.className = 'text-xs text-base-content/60 font-semibold mb-2 flex items-center gap-1.5 px-1';
+                    title.textContent = 'VIDEO';
+                    this._contentContainer.appendChild(title);
+
+                    const card = document.createElement('div');
+                    card.className = 'card bg-base-200 p-4 space-y-3';
+
+                    const desc = document.createElement('p');
+                    desc.className = 'text-sm text-base-content/70';
+                    desc.textContent = 'Scanning all folders for video files...';
+                    card.appendChild(desc);
+
+                    const status = document.createElement('p');
+                    status.className = 'text-xs text-base-content/60';
+                    status.textContent = 'Starting scan...';
+                    card.appendChild(status);
+
+                    const content = document.createElement('div');
+                    content.className = 'text-center py-6';
+
+                    const spinner = document.createElement('span');
+                    spinner.className = 'loading loading-spinner loading-md';
+                    content.appendChild(spinner);
+
+                    card.appendChild(content);
+                    this._contentContainer.appendChild(card);
+
+                    try {
+                        const queue = ['/'];
+                        const visited = new Set();
+                        const videos = [];
+                        let scannedDirs = 0;
+
+                        while (queue.length > 0) {
+                            const currentPath = normalizePath(queue.shift());
+                            if (visited.has(currentPath)) continue;
+                            visited.add(currentPath);
+                            scannedDirs += 1;
+                            status.textContent = `Scanning folder ${scannedDirs}: ${currentPath}`;
+
+                            let listResp;
+                            try {
+                                listResp = await window.Api.getFiles(currentPath);
+                            } catch (e) {
+                                continue;
+                            }
+
+                            const relPath = listResp.path ? normalizePath(`/${listResp.path}`) : '/';
+                            const items = Array.isArray(listResp.files) ? listResp.files : [];
+
+                            for (const item of items) {
+                                const fullPath = joinPath(relPath, item.name);
+                                if (item.is_dir) {
+                                    queue.push(fullPath);
+                                } else if (isVideoFile(item.name)) {
+                                    videos.push({
+                                        ...item,
+                                        fullPath: fullPath,
+                                    });
+                                }
+                            }
+                        }
+
+                        videos.sort((a, b) => String(b.mtime || '').localeCompare(String(a.mtime || '')));
+                        status.textContent = `Scan complete: ${videos.length} videos in ${scannedDirs} folders`;
+                        content.innerHTML = '';
+
+                        if (videos.length === 0) {
+                            const empty = document.createElement('p');
+                            empty.className = 'text-sm text-base-content/60';
+                            empty.textContent = 'No video files found.';
+                            content.appendChild(empty);
+                            return;
+                        }
+
+                        const list = document.createElement('div');
+                        list.className = 'space-y-2 max-h-[60vh] overflow-y-auto';
+
+                        for (const file of videos) {
+                            const row = document.createElement('div');
+                            row.className = 'flex items-center justify-between gap-2 bg-base-300/40 rounded-lg px-3 py-2';
+
+                            const left = document.createElement('div');
+                            left.className = 'min-w-0 flex-1';
+
+                            const name = document.createElement('div');
+                            name.className = 'text-sm truncate';
+                            name.textContent = file.name;
+
+                            const path = document.createElement('div');
+                            path.className = 'text-xs text-base-content/60 truncate';
+                            path.textContent = file.fullPath;
+
+                            left.appendChild(name);
+                            left.appendChild(path);
+
+                            const actions = document.createElement('div');
+                            actions.className = 'flex items-center gap-2 shrink-0';
+
+                            const filePathEncoded = encodeURIComponent(file.fullPath);
+                            const isTs = file.name.toLowerCase().endsWith('.ts');
+
+                            const primary = document.createElement('a');
+                            primary.className = `btn btn-sm ${isTs ? 'btn-success' : 'btn-primary'}`;
+                            primary.target = '_blank';
+                            primary.textContent = isTs ? 'Play' : 'Open';
+                            primary.href = isTs ? `/api/play?file=${filePathEncoded}` : `/media/${filePathEncoded}`;
+
+                            actions.appendChild(primary);
+                            row.appendChild(left);
+                            row.appendChild(actions);
+                            list.appendChild(row);
+                        }
+
+                        content.appendChild(list);
+                    } catch (e) {
+                        content.innerHTML = '';
+                        const err = document.createElement('p');
+                        err.className = 'text-sm text-error';
+                        err.textContent = 'Failed to scan videos.';
+                        content.appendChild(err);
+                    }
+                };
+            }
+
+            // Retry patch until app.js initializes PanelOverlay.
+            let attempts = 0;
+            const timer = setInterval(() => {
+                attempts += 1;
+                patchVideoTab();
+                if (window.PanelOverlay && window.PanelOverlay.__videoPatched) {
+                    clearInterval(timer);
+                } else if (attempts > 100) {
+                    clearInterval(timer);
+                }
+            }, 50);
         })();
     </script>
 </body>
