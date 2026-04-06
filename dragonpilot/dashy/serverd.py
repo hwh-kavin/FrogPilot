@@ -199,8 +199,19 @@ def resolve_value(value):
 async def init_api(request):
     """Provide initial data to the client."""
     cache: AppCache = request.app['cache']
+    params = cache.params
+
+    # Get language setting
+    current_lang = params.get("LanguageSetting")
+    if current_lang:
+        lang_str = current_lang.decode() if isinstance(current_lang, bytes) else str(current_lang)
+        lang_str = lang_str.removeprefix("main_")
+    else:
+        lang_str = "en"
+
     return web.json_response({
         'dp_dev_dashy': cache.get_bool_safe("dp_dev_dashy", True),
+        'language': lang_str,
     })
 
 
@@ -432,6 +443,22 @@ async def get_param_api(request):
         value = None
 
     return web.json_response({'key': param_name, 'value': value})
+
+
+@api_handler
+async def get_language_api(request):
+    """Get current language setting."""
+    cache: AppCache = request.app['cache']
+    params = cache.params
+
+    current_lang = params.get("LanguageSetting")
+    if current_lang:
+        lang_str = current_lang.decode() if isinstance(current_lang, bytes) else str(current_lang)
+        lang_str = lang_str.removeprefix("main_")
+    else:
+        lang_str = "en"
+
+    return web.json_response({'language': lang_str})
 
 
 @api_handler
@@ -949,6 +976,7 @@ def setup_aiohttp_app(host: str, port: int, debug: bool):
     app.router.add_get("/api/settings", get_settings_config_api)
     app.router.add_get("/api/settings/params/{param_name}", get_param_api)
     app.router.add_post("/api/settings/params/{param_name}", save_param_api)
+    app.router.add_get("/api/language", get_language_api)
     app.router.add_get("/api/models", get_model_list_api)
     app.router.add_post("/api/models/select", save_model_selection_api)
     app.router.add_post("/api/stream", webrtc_stream_proxy)
