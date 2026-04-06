@@ -138,7 +138,7 @@
         })();
     </script>
     <script>
-        // Video tab override: recursively load videos from all directories.
+        // Video tab override: recursively load videos under Dashy log root only.
         (function() {
             const VIDEO_EXTENSIONS = ['.ts', '.mp4', '.mkv', '.mov', '.avi', '.webm', '.m3u8'];
 
@@ -180,7 +180,7 @@
 
                     const desc = document.createElement('p');
                     desc.className = 'text-sm text-base-content/70';
-                    desc.textContent = 'Scanning all folders for video files...';
+                    desc.textContent = 'Scanning log root for video files only...';
                     card.appendChild(desc);
 
                     const status = document.createElement('p');
@@ -202,14 +202,19 @@
                         const queue = ['/'];
                         const visited = new Set();
                         const videos = [];
+                        const MAX_SCAN_DIRS = 800;
                         let scannedDirs = 0;
 
-                        while (queue.length > 0) {
+                        const list = document.createElement('div');
+                        list.className = 'space-y-2 max-h-[60vh] overflow-y-auto mt-2';
+                        content.appendChild(list);
+
+                        while (queue.length > 0 && scannedDirs < MAX_SCAN_DIRS) {
                             const currentPath = normalizePath(queue.shift());
                             if (visited.has(currentPath)) continue;
                             visited.add(currentPath);
                             scannedDirs += 1;
-                            status.textContent = `Scanning folder ${scannedDirs}: ${currentPath}`;
+                            status.textContent = `Scanning folder ${scannedDirs}: ${currentPath} (found ${videos.length})`;
 
                             let listResp;
                             try {
@@ -226,66 +231,70 @@
                                 if (item.is_dir) {
                                     queue.push(fullPath);
                                 } else if (isVideoFile(item.name)) {
-                                    videos.push({
+                                    const file = {
                                         ...item,
                                         fullPath: fullPath,
-                                    });
+                                    };
+                                    videos.push(file);
+
+                                    const row = document.createElement('div');
+                                    row.className = 'flex items-center justify-between gap-2 bg-base-300/40 rounded-lg px-3 py-2';
+
+                                    const left = document.createElement('div');
+                                    left.className = 'min-w-0 flex-1';
+
+                                    const name = document.createElement('div');
+                                    name.className = 'text-sm truncate';
+                                    name.textContent = file.name;
+
+                                    const path = document.createElement('div');
+                                    path.className = 'text-xs text-base-content/60 truncate';
+                                    path.textContent = file.fullPath;
+
+                                    left.appendChild(name);
+                                    left.appendChild(path);
+
+                                    const actions = document.createElement('div');
+                                    actions.className = 'flex items-center gap-2 shrink-0';
+
+                                    const filePathEncoded = encodeURIComponent(file.fullPath);
+                                    const isTs = file.name.toLowerCase().endsWith('.ts');
+
+                                    const primary = document.createElement('a');
+                                    primary.className = `btn btn-sm ${isTs ? 'btn-success' : 'btn-primary'}`;
+                                    primary.target = '_blank';
+                                    primary.textContent = isTs ? 'Play' : 'Open';
+                                    primary.href = isTs ? `/api/play?file=${filePathEncoded}` : `/media/${filePathEncoded}`;
+
+                                    actions.appendChild(primary);
+                                    row.appendChild(left);
+                                    row.appendChild(actions);
+                                    list.appendChild(row);
                                 }
+                            }
+
+                            if (scannedDirs % 10 === 0) {
+                                // Yield to the browser so progress text/list can update.
+                                await new Promise(resolve => setTimeout(resolve, 0));
                             }
                         }
 
                         videos.sort((a, b) => String(b.mtime || '').localeCompare(String(a.mtime || '')));
-                        status.textContent = `Scan complete: ${videos.length} videos in ${scannedDirs} folders`;
-                        content.innerHTML = '';
+                        if (scannedDirs >= MAX_SCAN_DIRS && queue.length > 0) {
+                            status.textContent = `Scan partially complete: ${videos.length} videos in ${scannedDirs}+ folders (scan limit reached)`;
+                        } else {
+                            status.textContent = `Scan complete: ${videos.length} videos in ${scannedDirs} folders`;
+                        }
+                        spinner.remove();
 
                         if (videos.length === 0) {
+                            list.remove();
                             const empty = document.createElement('p');
                             empty.className = 'text-sm text-base-content/60';
                             empty.textContent = 'No video files found.';
                             content.appendChild(empty);
                             return;
                         }
-
-                        const list = document.createElement('div');
-                        list.className = 'space-y-2 max-h-[60vh] overflow-y-auto';
-
-                        for (const file of videos) {
-                            const row = document.createElement('div');
-                            row.className = 'flex items-center justify-between gap-2 bg-base-300/40 rounded-lg px-3 py-2';
-
-                            const left = document.createElement('div');
-                            left.className = 'min-w-0 flex-1';
-
-                            const name = document.createElement('div');
-                            name.className = 'text-sm truncate';
-                            name.textContent = file.name;
-
-                            const path = document.createElement('div');
-                            path.className = 'text-xs text-base-content/60 truncate';
-                            path.textContent = file.fullPath;
-
-                            left.appendChild(name);
-                            left.appendChild(path);
-
-                            const actions = document.createElement('div');
-                            actions.className = 'flex items-center gap-2 shrink-0';
-
-                            const filePathEncoded = encodeURIComponent(file.fullPath);
-                            const isTs = file.name.toLowerCase().endsWith('.ts');
-
-                            const primary = document.createElement('a');
-                            primary.className = `btn btn-sm ${isTs ? 'btn-success' : 'btn-primary'}`;
-                            primary.target = '_blank';
-                            primary.textContent = isTs ? 'Play' : 'Open';
-                            primary.href = isTs ? `/api/play?file=${filePathEncoded}` : `/media/${filePathEncoded}`;
-
-                            actions.appendChild(primary);
-                            row.appendChild(left);
-                            row.appendChild(actions);
-                            list.appendChild(row);
-                        }
-
-                        content.appendChild(list);
                     } catch (e) {
                         content.innerHTML = '';
                         const err = document.createElement('p');

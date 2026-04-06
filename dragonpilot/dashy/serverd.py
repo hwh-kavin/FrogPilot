@@ -48,13 +48,14 @@ from cereal import messaging
 
 from openpilot.common.params import Params
 from openpilot.system.hardware import PC, HARDWARE
+from openpilot.system.hardware.hw import Paths
 from openpilot.system.ui.lib.multilang import multilang as base_multilang
 from dragonpilot.settings import SETTINGS
 from dragonpilot.dashy.maa.providers import MapService
 from dragonpilot.dashy.maa.providers.models import Coordinate
 
 # --- Configuration ---
-DEFAULT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), '..') if PC else '/data/media/0/realdata')
+DEFAULT_DIR = os.path.realpath(Paths.log_root())
 WEB_DIST_PATH = os.path.join(os.path.dirname(__file__), "web", "dist")
 WEBRTC_TIMEOUT = ClientTimeout(total=10)
 CAR_PARAMS_CACHE_TTL = 30  # seconds
